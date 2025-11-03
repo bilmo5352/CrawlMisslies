@@ -13,7 +13,6 @@ import os
 import threading
 import time
 import signal
-import datetime
 from typing import Optional
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -27,29 +26,22 @@ from LaunchPad.productExtractionPipeline import ProductExtractionPipeline
 
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
-    """Simple HTTP handler for health checks with activity tracking"""
+    """Simple HTTP handler for health checks"""
     
     def do_GET(self):
         if self.path == '/health':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            response = f'{{"status":"ok","message":"Pipelines running","timestamp":"{datetime.datetime.now().isoformat()}"}}'.encode()
+            response = b'{"status":"ok","message":"Pipelines running"}'
             self.wfile.write(response)
-        elif self.path == '/':
-            # Root endpoint also responds to keep service active
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            self.wfile.write(b'<html><body><h1>Pipeline Service Active</h1><p>Health check: <a href="/health">/health</a></p></body></html>')
         else:
             self.send_response(404)
             self.end_headers()
     
     def log_message(self, format, *args):
-        # Keep health check logs minimal but visible for debugging
-        if self.path == '/health':
-            print(f"[HEALTH] {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Health check from {self.address_string()}")
+        # Suppress health check logs
+        pass
 
 
 class PipelineManager:
@@ -63,22 +55,12 @@ class PipelineManager:
         print("INITIALIZING PIPELINE MANAGER")
         print(f"{'='*80}\n")
         
-        # Get resource configuration from environment
-        self.max_parallel_categories = int(os.getenv("MAX_PARALLEL_CATEGORIES", "5"))
-        self.max_parallel_products = int(os.getenv("MAX_PARALLEL_PRODUCTS", "10"))
-        self.max_parallel_browsers = int(os.getenv("MAX_PARALLEL_BROWSERS", "8"))
-        
-        print(f"[*] Resource Configuration:")
-        print(f"    → Max parallel categories: {self.max_parallel_categories}")
-        print(f"    → Max parallel products: {self.max_parallel_products}")
-        print(f"    → Max parallel browsers: {self.max_parallel_browsers}\n")
-        
         # Initialize pipelines
         print("[*] Initializing Category Search Pipeline...")
-        self.category_pipeline = CategorySearchPipeline(max_parallel_browsers=self.max_parallel_browsers)
+        self.category_pipeline = CategorySearchPipeline()
         
         print("\n[*] Initializing Product Extraction Pipeline...")
-        self.product_pipeline = ProductExtractionPipeline(max_parallel_browsers=self.max_parallel_browsers)
+        self.product_pipeline = ProductExtractionPipeline()
         
         # Threads for running pipelines
         self.category_thread: Optional[threading.Thread] = None
@@ -88,87 +70,51 @@ class PipelineManager:
         
         # Control flags
         self.running = False
-        self.last_activity_time = time.time()
         
         print(f"\n{'='*80}")
         print("PIPELINE MANAGER INITIALIZED")
         print(f"{'='*80}\n")
     
     def run_category_pipeline(self):
-        """Run category search pipeline in a thread - runs forever"""
-        while self.running:
-            try:
-                print(f"\n[CATEGORY PIPELINE] Starting...")
-                self.category_pipeline.run_continuous(
-                    delay_between_categories=1, 
-                    max_parallel=self.max_parallel_categories
-                )
-            except KeyboardInterrupt:
-                print(f"\n[CATEGORY PIPELINE] Interrupted")
-                break
-            except Exception as e:
-                print(f"\n[CATEGORY PIPELINE] Error: {e}")
-                import traceback
-                traceback.print_exc()
+        """Run category search pipeline in a thread"""
+        try:
+            print(f"\n[CATEGORY PIPELINE] Starting...")
+            self.category_pipeline.run_continuous(delay_between_categories=5)
+        except Exception as e:
+            print(f"\n[CATEGORY PIPELINE] Error: {e}")
+            if self.running:
+                print(f"[CATEGORY PIPELINE] Restarting in 10 seconds...")
+                time.sleep(10)
                 if self.running:
-                    print(f"[CATEGORY PIPELINE] Restarting in 10 seconds...")
-                    time.sleep(10)
-                    # Loop will continue and restart run_continuous
+                    self.run_category_pipeline()
     
     def run_product_pipeline(self):
-        """Run product extraction pipeline in a thread - runs forever"""
-        while self.running:
-            try:
-                print(f"\n[PRODUCT PIPELINE] Starting...")
-                self.product_pipeline.run_continuous(
-                    delay_between_products=0.5,
-                    max_parallel=self.max_parallel_products
-                )
-            except KeyboardInterrupt:
-                print(f"\n[PRODUCT PIPELINE] Interrupted")
-                break
-            except Exception as e:
-                print(f"\n[PRODUCT PIPELINE] Error: {e}")
-                import traceback
-                traceback.print_exc()
+        """Run product extraction pipeline in a thread"""
+        try:
+            print(f"\n[PRODUCT PIPELINE] Starting...")
+            self.product_pipeline.run_continuous(delay_between_products=2)
+        except Exception as e:
+            print(f"\n[PRODUCT PIPELINE] Error: {e}")
+            if self.running:
+                print(f"[PRODUCT PIPELINE] Restarting in 10 seconds...")
+                time.sleep(10)
                 if self.running:
-                    print(f"[PRODUCT PIPELINE] Restarting in 10 seconds...")
-                    time.sleep(10)
-                    # Loop will continue and restart run_continuous
+                    self.run_product_pipeline()
     
     def run_health_check_server(self):
-        """Run HTTP health check server for Railway with keep-alive - runs forever"""
-        while self.running:
-            try:
-                port = int(os.getenv("PORT", "8080"))
-                self.health_server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-                print(f"[*] Health check server started on port {port}")
-                print(f"[*] Health endpoint: http://0.0.0.0:{port}/health")
-                print(f"[*] Root endpoint: http://0.0.0.0:{port}/")
-                
-                # Set timeout to handle requests non-blockingly
-                self.health_server.timeout = 1
-                
-                # Run server loop
-                while self.running:
-                    try:
-                        self.health_server.handle_request()
-                        time.sleep(0.1)  # Small delay between checks
-                    except Exception as e:
-                        print(f"[HEALTH SERVER] Request handling error: {e}")
-                        time.sleep(1)
-                
-            except KeyboardInterrupt:
-                print(f"\n[HEALTH SERVER] Interrupted")
-                break
-            except Exception as e:
-                print(f"\n[HEALTH SERVER] Error: {e}")
-                import traceback
-                traceback.print_exc()
+        """Run HTTP health check server for Railway"""
+        try:
+            port = int(os.getenv("PORT", "8080"))
+            self.health_server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+            print(f"[*] Health check server started on port {port}")
+            print(f"[*] Health endpoint: http://0.0.0.0:{port}/health")
+            self.health_server.serve_forever()
+        except Exception as e:
+            print(f"\n[HEALTH SERVER] Error: {e}")
+            if self.running:
+                time.sleep(5)
                 if self.running:
-                    print(f"[HEALTH SERVER] Restarting in 5 seconds...")
-                    time.sleep(5)
-                    # Loop will continue and restart server
+                    self.run_health_check_server()
     
     def start(self):
         """Start both pipelines in separate threads"""
@@ -219,59 +165,6 @@ class PipelineManager:
         print("  → Product Pipeline: Extracts products using saved templates")
         print("  → Health Check: HTTP server responding on /health endpoint")
         print("\n[INFO] Press Ctrl+C to stop all pipelines\n")
-        
-        # Keep-alive thread to prevent Railway from pausing
-        def keep_alive_heartbeat():
-            """Actively ping health endpoint and log to keep service alive"""
-            import requests
-            
-            port = int(os.getenv("PORT", "8080"))
-            health_url = f"http://localhost:{port}/health"
-            
-            while self.running:
-                try:
-                    # Ping health endpoint every 2 minutes to keep HTTP server active
-                    time.sleep(10)  # Every 2 minutes
-                    if self.running:
-                        current_time = time.strftime('%Y-%m-%d %H:%M:%S')
-                        
-                        # Make actual HTTP request to keep service active
-                        try:
-                            response = requests.get(health_url, timeout=5)
-                            print(f"\n[KEEP-ALIVE] {current_time} - Health check ping: {response.status_code}")
-                        except Exception as e:
-                            print(f"[KEEP-ALIVE] {current_time} - Health check ping failed: {e}")
-                        
-                        print(f"[KEEP-ALIVE] Service active, pipelines running...")
-                        self.last_activity_time = time.time()
-                        
-                        # Check pipeline status
-                        category_alive = self.category_thread and self.category_thread.is_alive()
-                        product_alive = self.product_thread and self.product_thread.is_alive()
-                        health_alive = self.health_check_thread and self.health_check_thread.is_alive()
-                        
-                        print(f"    Category Pipeline: {'✓ Running' if category_alive else '✗ Stopped'}")
-                        print(f"    Product Pipeline: {'✓ Running' if product_alive else '✗ Stopped'}")
-                        print(f"    Health Server: {'✓ Running' if health_alive else '✗ Stopped'}")
-                        
-                        # Restart pipelines if they died
-                        if not category_alive and self.running:
-                            print("[!] Category Pipeline stopped - will restart on next check")
-                        if not product_alive and self.running:
-                            print("[!] Product Pipeline stopped - will restart on next check")
-                            
-                except Exception as e:
-                    print(f"[KEEP-ALIVE] Error: {e}")
-                    import traceback
-                    traceback.print_exc()
-        
-        keep_alive_thread = threading.Thread(
-            target=keep_alive_heartbeat,
-            name="KeepAlive",
-            daemon=True
-        )
-        keep_alive_thread.start()
-        print("[✓] Keep-alive heartbeat started\n")
         
         # Wait for threads (they run continuously)
         try:

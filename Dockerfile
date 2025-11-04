@@ -51,5 +51,5 @@ COPY . .
 RUN google-chrome --version || echo "Chrome version check failed"
 
 # Run the application
-CMD ["python", "main.py"]
+CMD ["python", "LaunchPad/productExtractionPipeline.py"]
 

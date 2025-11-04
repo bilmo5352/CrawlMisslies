@@ -739,7 +739,7 @@ class UniversalProductExtractor:
                     if btn.is_displayed() and btn.is_enabled():
                         try:
                             driver.execute_script("arguments[0].click();", btn)
-                            time.sleep(1)
+                            time.sleep(0.5)  # Reduced from 1 to 0.5 seconds
                             clicked = True
                         except Exception:
                             continue
@@ -749,20 +749,61 @@ class UniversalProductExtractor:
 
     def _setup_driver(self) -> webdriver.Chrome:
         chrome_options = Options()
+        # Headless mode optimized for Railway
         chrome_options.add_argument('--headless=new')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
+        
+        # GPU and rendering optimizations for headless server
         chrome_options.add_argument('--disable-gpu')
         chrome_options.add_argument('--disable-software-rasterizer')
+        chrome_options.add_argument('--disable-accelerated-2d-canvas')
+        chrome_options.add_argument('--disable-accelerated-video-decode')
+        chrome_options.add_argument('--disable-background-networking')
+        chrome_options.add_argument('--disable-background-timer-throttling')
+        chrome_options.add_argument('--disable-backgrounding-occluded-windows')
+        chrome_options.add_argument('--disable-breakpad')
+        chrome_options.add_argument('--disable-client-side-phishing-detection')
+        chrome_options.add_argument('--disable-component-extensions-with-background-pages')
+        chrome_options.add_argument('--disable-features=TranslateUI,BlinkGenPropertyTrees')
+        chrome_options.add_argument('--disable-hang-monitor')
+        chrome_options.add_argument('--disable-ipc-flooding-protection')
+        chrome_options.add_argument('--disable-popup-blocking')
+        chrome_options.add_argument('--disable-prompt-on-repost')
+        chrome_options.add_argument('--disable-renderer-backgrounding')
+        chrome_options.add_argument('--disable-sync')
+        chrome_options.add_argument('--disable-web-resources')
+        chrome_options.add_argument('--metrics-recording-only')
+        chrome_options.add_argument('--no-first-run')
+        chrome_options.add_argument('--safebrowsing-disable-auto-update')
+        chrome_options.add_argument('--enable-automation')
+        chrome_options.add_argument('--password-store=basic')
+        chrome_options.add_argument('--use-mock-keychain')
+        
+        # Performance optimizations
         chrome_options.add_argument('--disable-extensions')
         chrome_options.add_argument('--disable-logging')
         chrome_options.add_argument('--disable-notifications')
         chrome_options.add_argument('--disable-default-apps')
+        chrome_options.add_argument('--disable-plugins')
+        chrome_options.add_argument('--disable-images')  # Disable images for faster loading
+        chrome_options.add_argument('--blink-settings=imagesEnabled=false')
         chrome_options.add_argument('--window-size=1920,1080')
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"]) 
+        chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        
+        # Disable unnecessary features
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"]) 
         chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        chrome_options.add_experimental_option("prefs", {
+            "profile.default_content_setting_values": {
+                "images": 2,  # Disable images
+                "plugins": 2,  # Disable plugins
+                "popups": 2,   # Block popups
+                "geolocation": 2,  # Block geolocation
+                "notifications": 2,  # Block notifications
+            }
+        })
         
         # Use webdriver-manager if available, otherwise try system Chrome
         if WEBDRIVER_MANAGER_AVAILABLE:
